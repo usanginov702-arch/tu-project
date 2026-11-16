@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#02040a">
+  <title>I Love You — текстовое сердце</title>
+  <style>
+    :root{color-scheme:dark}
+    *{box-sizing:border-box}
+    html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#02040a;color:#f4f8ff;font-family:Arial,Helvetica,sans-serif}
+    canvas{position:fixed;inset:0;width:100%;height:100%;display:block;background:#02040a}
+    audio{display:none}
+    .lock{position:fixed;inset:0;z-index:2;display:grid;place-items:center;overflow:hidden;background:radial-gradient(ellipse at 50% 32%,#101b36 0,#070c19 45%,#02040a 82%);transition:opacity .7s ease,visibility .7s ease}
+    .lock.open{opacity:0;visibility:hidden;pointer-events:none}
+    .screen{position:relative;width:min(430px,100vw);height:100%;padding:calc(env(safe-area-inset-top) + 16px) 20px calc(env(safe-area-inset-bottom) + 24px);display:flex;flex-direction:column}
+    .status{height:24px;display:flex;justify-content:space-between;align-items:center;padding:0 7px;font-size:13px;font-weight:700}
+    .icons{display:flex;align-items:center;gap:7px;font-size:11px}.signal{letter-spacing:-2px}
+    .battery{width:20px;height:10px;border:1px solid #f4f8ff;border-radius:3px;position:relative}.battery:before{content:"";position:absolute;inset:2px 3px;background:#f4f8ff;border-radius:1px}.battery:after{content:"";position:absolute;right:-3px;top:2px;width:2px;height:4px;background:#f4f8ff}
+    .clock{margin-top:clamp(60px,12vh,105px);text-align:center;font-size:clamp(72px,20vw,96px);font-weight:250;line-height:1;letter-spacing:-.075em;text-shadow:0 4px 30px #9bbaff25}
+    .date{margin-top:9px;text-align:center;color:#e5e9f2;font-size:15px;text-transform:capitalize}
+    .notice-title{margin:clamp(48px,9vh,82px) 5px 10px;font-size:14px;font-weight:600}
+    .notice{width:100%;display:grid;grid-template-columns:42px minmax(0,1fr) auto;align-items:center;gap:12px;padding:14px;text-align:left;color:#f7f8ff;border:1px solid #ffffff28;border-radius:19px;background:linear-gradient(135deg,#edf4ff2c,#cbdcff18);box-shadow:0 10px 36px #0007,inset 0 1px #ffffff1a;backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);animation:arrive .8s .7s cubic-bezier(.2,.75,.25,1) both}
+    .notice:active{transform:scale(.985);background:#e8f2ff30}
+    .app-icon{width:42px;height:42px;display:grid;place-items:center;border-radius:13px;background:linear-gradient(145deg,#39bdff,#5255db);font-size:19px;box-shadow:0 3px 12px #08101c66}
+    .notice-copy{display:grid;gap:4px}.notice-app{font-size:10px;font-weight:700;color:#f2f5ff}.notice-message{font-size:14px;font-weight:500}.notice-time{align-self:start;margin-top:1px;color:#d2d8e8;font-size:10px}
+    .hint{margin-top:auto;text-align:center;color:#ffffff80;font-size:11px;letter-spacing:.04em}.home{width:112px;height:4px;border-radius:10px;background:#ffffffdf;margin:17px auto 2px}
+    @keyframes arrive{from{opacity:0;transform:translateY(-38px) scale(.97);filter:blur(7px)}to{opacity:1;transform:translateY(0) scale(1);filter:blur(0)}}
+    @media(min-width:600px){.screen{height:min(880px,calc(100dvh - 48px));border:1px solid #9eb4df35;border-radius:42px;box-shadow:0 26px 100px #000b,inset 0 0 36px #8fb8ff0a}.screen:before{content:"";position:absolute;top:12px;left:50%;transform:translateX(-50%);width:94px;height:25px;border-radius:20px;background:#020309;z-index:1}}
+    @media(max-height:650px){.screen{padding:10px 20px}.clock{margin-top:5vh;font-size:64px}.notice-title{margin-top:5vh}}
+  </style>
+</head>
+<body>
+  <canvas id="scene" aria-label="Множество голубых надписей I Love You складывается в сердце"></canvas>
+  <div class="lock" id="lock">
+    <main class="screen">
+      <div class="status"><span id="statusTime">9:41</span><span class="icons"><span class="signal">▂▄▆</span><span>Wi-Fi</span><span class="battery" aria-hidden="true"></span></span></div>
+      <div class="clock" id="clock">9:41</div><div class="date" id="date">Понедельник, 16 ноября</div>
+      <div class="notice-title">Уведомления</div>
+      <button class="notice" id="open" aria-label="Открыть уведомление: Для тебя">
+        <span class="app-icon" aria-hidden="true">✉</span>
+        <span class="notice-copy"><span class="notice-app">Сообщение</span><span class="notice-message">Для тебя ❤️</span></span>
+        <span class="notice-time">сейчас</span>
+      </button>
+      <div class="hint">Нажми на уведомление</div><div class="home" aria-hidden="true"></div>
+    </main>
+  </div>
+  <audio id="song" preload="auto" src="./angel.mp3"></audio>
+  <script>
+  (()=>{
+    'use strict';
+    const canvas=document.getElementById('scene');
+    const ctx=canvas.getContext('2d',{alpha:false,desynchronized:true});
+    const song=document.getElementById('song'),lock=document.getElementById('lock'),openButton=document.getElementById('open');
+    const AUDIO_START=137,OUTLINE_SECONDS=8,BPM=107,BEAT_SECONDS=60/BPM,FILL_STEPS=7,TEXT='I Love You';
+    let width=0,height=0,scale=1,path=null,particles=[],started=false,starting=false,audioTime=false,startAt=0,lastFrame=0;
+    const rand=(a,b)=>a+Math.random()*(b-a),clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+
+    function createHeart(cx,cy,rx,ry){
+      // Standard parametric heart curve, converted to a closed canvas path.
+      const pts=[],n=720;let minY=Infinity,maxY=-Infinity;
+      for(let i=0;i<n;i++){
+        const t=i*Math.PI*2/n,s=Math.sin(t),c=Math.cos(t);
+        const x=16*s*s*s,y=13*c-5*Math.cos(2*t)-2*Math.cos(3*t)-Math.cos(4*t);
+        pts.push({x,y});minY=Math.min(minY,y);maxY=Math.max(maxY,y);
+      }
+      const middle=(minY+maxY)/2,half=(maxY-minY)/2,shape=new Path2D();
+      for(let i=0;i<pts.length;i++){
+        const x=cx+pts[i].x/16*rx,y=cy-(pts[i].y-middle)/half*ry;
+        if(i===0)shape.moveTo(x,y);else shape.lineTo(x,y);
+      }
+      shape.closePath();return {shape,top:cy-ry,bottom:cy+ry};
+    }
+    function horizontalSpans(shape,y,cx,rx){
+      const spans=[];let left=null;
+      for(let x=cx-rx;x<=cx+rx;x+=2){
+        const inside=ctx.isPointInPath(shape,x,y);
+        if(inside&&left===null)left=x;
+        else if(!inside&&left!==null){spans.push([left,x-2]);left=null}
+      }
+      if(left!==null)spans.push([left,cx+rx]);
+      return spans;
+    }
+    function buildLine(spans,y,progress,row,mobile,cx){
+      const contour=[],inside=[];let edgeOrder=0,fillOrder=0;
+      for(const [left,right] of spans){
+        // Build only the left half; mirror each phrase exactly to keep the heart balanced.
+        if(left>=cx)continue;
+        const span=right-left;
+        let fontSize=clamp(span/(mobile?5.25:5.7),mobile?4.5:5.5,mobile?10:13);
+        ctx.font=`${fontSize}px Georgia,serif`;
+        let wordWidth=ctx.measureText(TEXT).width;
+        if(wordWidth>span-2){fontSize*=Math.max(.5,(span-2)/wordWidth);ctx.font=`${fontSize}px Georgia,serif`;wordWidth=ctx.measureText(TEXT).width}
+        const gap=rand(-1,2),available=span-3;
+        let count=Math.max(1,Math.floor((available+gap)/(wordWidth+gap)));
+        while(count>1&&count*wordWidth+(count-1)*gap>available)count--;
+        const lineWidth=count*wordWidth+(count-1)*gap,start=left+(span-lineWidth)/2;
+        for(let i=0;i<count;i++){
+          const x=start+wordWidth*(i+.5)+gap*i;
+          if(x>cx+.5)continue;
+          const center=Math.abs(x-cx)<.75,isEdge=i===0||i===count-1;
+          const order=isEdge?edgeOrder++:fillOrder++,size=clamp(fontSize+rand(-.25,.25),4,13);
+          const item={text:TEXT,x,y,size,progress,row,order,alpha:rand(.52,.9),phase:rand(0,Math.PI*2),
+            color:['#78efff','#50dfff','#309eff','#a4f6ff','#53bbff'][Math.floor(rand(0,5))],glow:Math.random()<.12};
+          const group=isEdge?contour:inside;group.push(item);
+          if(!center)group.push({...item,x:2*cx-x});
+        }
+      }
+      return {contour,inside};
+    }
+    function makeParticles(){
+      const mobile=width<700,rx=Math.min(width*.42,height*.36*.94),ry=rx/.92,cx=width/2,cy=height/2;
+      const heart=createHeart(cx,cy,rx,ry),gapY=mobile?12:15,contour=[],inside=[];path=heart.shape;
+      let row=0;
+      for(let y=heart.top+gapY*.5;y<heart.bottom-gapY*.2;y+=gapY,row++){
+        const spans=horizontalSpans(path,y,cx,rx);if(!spans.length)continue;
+        const progress=clamp((y-heart.top)/(heart.bottom-heart.top),0,1),line=buildLine(spans,y,progress,row,mobile,cx);
+        // Write the closed outer contour row by row, left to right, before any inner text appears.
+        const outlineStart=progress*(OUTLINE_SECONDS-.2);
+        line.contour.forEach(p=>contour.push({...p,delay:outlineStart+p.order*.025}));
+        const band=Math.min(FILL_STEPS-1,Math.floor(progress*FILL_STEPS));
+        const withinBand=progress*FILL_STEPS-band;
+        const fillStart=OUTLINE_SECONDS+band*BEAT_SECONDS+withinBand*BEAT_SECONDS*.45;
+        line.inside.forEach(p=>inside.push({...p,delay:fillStart+p.order*.025}));
+      }
+      particles=[...contour,...inside];
+    }
+    function resize(){
+      scale=Math.min(devicePixelRatio||1,1.35);width=innerWidth;height=innerHeight;
+      canvas.width=Math.round(width*scale);canvas.height=Math.round(height*scale);ctx.setTransform(scale,0,0,scale,0,0);
+      makeParticles();
+    }
+    function updateLockClock(){
+      const now=new Date(),time=new Intl.DateTimeFormat('ru-RU',{hour:'2-digit',minute:'2-digit'}).format(now);
+      document.getElementById('statusTime').textContent=time;document.getElementById('clock').textContent=time;
+      document.getElementById('date').textContent=new Intl.DateTimeFormat('ru-RU',{weekday:'long',day:'numeric',month:'long'}).format(now);
+    }
+    function draw(now){
+      requestAnimationFrame(draw);
+      if(now-lastFrame<(width<700?1000/40:1000/50))return;lastFrame=now;
+      ctx.fillStyle='#02040a';ctx.fillRect(0,0,width,height);
+      if(!started)return;
+      const elapsed=audioTime?Math.max(0,song.currentTime-AUDIO_START):(now-startAt)/1000;
+      const cx=width/2,cy=height/2,ry=Math.min(width*.42,height*.36*.94)/.92;
+      const halo=ctx.createRadialGradient(cx,cy,8,cx,cy,Math.min(width,height)*.43);
+      halo.addColorStop(0,'rgba(0,135,220,.10)');halo.addColorStop(1,'rgba(0,14,35,0)');ctx.fillStyle=halo;ctx.fillRect(0,0,width,height);
+      const finished=OUTLINE_SECONDS+(FILL_STEPS-1)*BEAT_SECONDS+BEAT_SECONDS*.45+.2;
+      const after=elapsed-finished,phase=after>0?(after%(BEAT_SECONDS*2))/(BEAT_SECONDS*2):0;
+      const pulse=after>0?1+.024*Math.exp(-Math.pow((phase-.12)/.07,2))+.01*Math.exp(-Math.pow((phase-.31)/.08,2)):1;
+      ctx.save();ctx.clip(path);ctx.textAlign='center';ctx.textBaseline='middle';
+      for(const p of particles){
+        const age=elapsed-p.delay;
+        if(age<0)continue;
+        const x=cx+(p.x-cx)*pulse+Math.sin(elapsed*.52+p.phase)*.28;
+        const y=cy+(p.y-cy)*pulse+Math.cos(elapsed*.46+p.phase)*.2;
+        ctx.font=`${Math.round(p.size*pulse)}px Georgia,serif`;ctx.fillStyle=p.color;
+        ctx.globalAlpha=p.alpha*Math.min(1,age/.2)*(.92+.08*Math.sin(elapsed*1.12+p.phase));
+        ctx.shadowColor=p.color;ctx.shadowBlur=p.glow?4:0;ctx.fillText(p.text,x,y);
+      }
+      ctx.restore();ctx.globalAlpha=1;ctx.shadowBlur=0;
+      if(elapsed>finished+.25){
+        ctx.save();ctx.textAlign='center';ctx.textBaseline='middle';ctx.globalAlpha=clamp((elapsed-finished-.25)/.7,0,1);
+        ctx.font=`italic ${Math.round(Math.min(64,width*.14,height*.1))}px Georgia,serif`;
+        ctx.fillStyle='#f5fdff';ctx.shadowColor='#b7f4ff';ctx.shadowBlur=18;ctx.fillText('I Love You',cx,cy+ry*.035);
+        ctx.restore();ctx.globalAlpha=1;ctx.shadowBlur=0;
+      }
+    }
+    async function begin(){
+      if(starting||started)return;starting=true;lock.classList.add('open');
+      try{
+        // Play is called from the notification tap so mobile browsers permit audio.
+        if(song.readyState<1)await song.play();
+        song.currentTime=AUDIO_START;await song.play();audioTime=true;
+      }catch{audioTime=false;startAt=performance.now()}
+      started=true;starting=false;lastFrame=0;
+    }
+    openButton.addEventListener('click',begin);
+    addEventListener('resize',resize,{passive:true});
+    document.addEventListener('visibilitychange',()=>{lastFrame=0});
+    updateLockClock();setInterval(updateLockClock,30000);resize();requestAnimationFrame(draw);
+  })();
+  </script>
+</body>
+</html>
